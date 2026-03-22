@@ -1,6 +1,16 @@
 import axios from 'axios'
+import { parseAbi } from "viem"
+import { getPublicClient } from "./wallet.js"
 
 const GAMMA_BASE = 'https://gamma-api.polymarket.com'
+const CORE_ADDRESS = "0x26dC6463d492E39D02441cE942c03a4d72D958bE" as const
+const CORE_ABI = parseAbi([
+  "function negRiskAdapter() view returns (address)",
+])
+const NEGRISK_ADAPTER_ABI = parseAbi([
+  "function getQuestionCount(bytes32 marketId) view returns (uint256)",
+  "function getConditionId(bytes32 questionId) view returns (bytes32)",
+])
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +61,42 @@ function extractNegRiskMarketId(e: any): string | null {
     }
   }
   return null
+}
+
+function addToBytes32(value: `0x${string}`, offset: bigint): `0x${string}` {
+  const v = BigInt(value) + offset
+  return (`0x${v.toString(16).padStart(64, "0")}`) as `0x${string}`
+}
+
+async function deriveNegRiskConditionIds(
+  marketId: `0x${string}`,
+): Promise<string[]> {
+  const client = getPublicClient()
+  const adapter = (await client.readContract({
+    address: CORE_ADDRESS,
+    abi: CORE_ABI,
+    functionName: "negRiskAdapter",
+  })) as `0x${string}`
+
+  const qCount = (await client.readContract({
+    address: adapter,
+    abi: NEGRISK_ADAPTER_ABI,
+    functionName: "getQuestionCount",
+    args: [marketId],
+  })) as bigint
+
+  const ids: string[] = []
+  for (let i = 0n; i < qCount; i++) {
+    const questionId = addToBytes32(marketId, i)
+    const conditionId = (await client.readContract({
+      address: adapter,
+      abi: NEGRISK_ADAPTER_ABI,
+      functionName: "getConditionId",
+      args: [questionId],
+    })) as `0x${string}`
+    ids.push(conditionId.toLowerCase())
+  }
+  return ids
 }
 
 /**
@@ -420,6 +466,11 @@ export async function resolveTaskTarget(
 ): Promise<string> {
   try {
     const normalizedTarget = targetId.toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(normalizedTarget)) {
+      return JSON.stringify({
+        error: `resolveTaskTarget failed: targetId must be bytes32 (0x + 64 hex), got ${targetId}`,
+      });
+    }
 
     // Path A: Non-NegRisk — targetId is exactly conditionId.
     if (!isNegRisk) {
@@ -482,6 +533,20 @@ export async function resolveTaskTarget(
     }
 
     // Path B: NegRisk — targetId is negRiskMarketId.
+    let derivedConditionIds: string[] = [];
+    try {
+      derivedConditionIds = await deriveNegRiskConditionIds(
+        normalizedTarget as `0x${string}`,
+      );
+      if (derivedConditionIds.length === 0) {
+        return JSON.stringify({
+          error: `resolveTaskTarget failed: invalid negRiskMarketId (questionCount=0) ${normalizedTarget}`,
+        });
+      }
+    } catch {
+      // keep compatibility: continue API path even if chain lookup fails
+    }
+
     // Gamma uses both spellings in the wild; we try both.
     const queries = [
       { negRiskMarketID: normalizedTarget, limit: 20 },
@@ -489,17 +554,49 @@ export async function resolveTaskTarget(
     ];
 
     let event: any | null = null;
+    const fallbackMarkets: any[] = [];
     for (const params of queries) {
       try {
         const { data } = await axios.get<any[]>(`${GAMMA_BASE}/events`, {
           params,
         });
         if (Array.isArray(data) && data.length > 0) {
-          event = data[0];
-          break;
+          const exact = data.find(
+            (e: any) =>
+              String(extractNegRiskMarketId(e) ?? "").toLowerCase() ===
+              normalizedTarget,
+          );
+          if (exact) {
+            event = exact;
+            break;
+          }
         }
       } catch {
         // try next shape
+      }
+    }
+
+    // Fallback: derive all conditionIds on-chain, then map conditionId -> market -> event.
+    if (!event) {
+      try {
+        for (const conditionId of derivedConditionIds) {
+          const raw = await getMarketByConditionId(conditionId);
+          const market = JSON.parse(raw);
+          if (market?.error) continue;
+          fallbackMarkets.push(market);
+          const attached = Array.isArray(market?.events) ? market.events : [];
+          const exactEvent = attached.find(
+            (e: any) =>
+              String(extractNegRiskMarketId(e) ?? "").toLowerCase() ===
+              normalizedTarget,
+          );
+          if (exactEvent) {
+            event = exactEvent;
+            break;
+          }
+        }
+      } catch {
+        // ignore fallback failures and return unified error below
       }
     }
 
@@ -509,7 +606,11 @@ export async function resolveTaskTarget(
       });
     }
 
-    const rawMarkets = Array.isArray(event.markets) ? event.markets : [];
+    const rawMarkets = fallbackMarkets.length > 0
+      ? fallbackMarkets
+      : Array.isArray(event.markets)
+        ? event.markets
+        : [];
     const markets = rawMarkets.map((m: any, idx: number) => {
       const fm = formatMarket(m);
       return {
