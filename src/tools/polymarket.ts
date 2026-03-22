@@ -88,6 +88,15 @@ function formatMarket(m: any) {
     acceptingOrders: m.acceptingOrders ?? false,
     restricted: m.restricted ?? false,
     clobTokenIds,
+    events: Array.isArray(m.events)
+      ? m.events.map((e: any) => ({
+          id: e?.id ?? null,
+          slug: e?.slug ?? null,
+          title: e?.title ?? null,
+          endDate: e?.endDate ?? null,
+          closed: e?.closed ?? null,
+        }))
+      : [],
   }
 }
 
@@ -343,13 +352,17 @@ export async function checkEventResolution(eventIdOrSlug: string): Promise<strin
  */
 export async function getMarketByConditionId(conditionId: string): Promise<string> {
   try {
-    const { data } = await axios.get(`${GAMMA_BASE}/markets/${conditionId}`)
+    const normalized = String(conditionId).toLowerCase().trim()
+    const { data } = await axios.get<any[]>(`${GAMMA_BASE}/markets`, {
+      params: { condition_ids: normalized, limit: 1 },
+    })
+    const market = Array.isArray(data) ? data[0] : null
 
-    if (!data) {
+    if (!market) {
       return JSON.stringify({ error: `Market not found: ${conditionId}` })
     }
 
-    return JSON.stringify(formatMarket(data))
+    return JSON.stringify(formatMarket(market))
   } catch (err: any) {
     return JSON.stringify({ error: `getMarketByConditionId failed: ${err.message}` })
   }
@@ -415,13 +428,30 @@ export async function resolveTaskTarget(
       if (marketParsed?.error) return marketRaw;
 
       // Best-effort event lookup by conditionId.
+      // Prefer market-attached events from /markets response (most stable mapping),
+      // then fallback to /events?condition_ids.
       let event: any | null = null;
+      const marketEvent = Array.isArray((marketParsed as any)?.events)
+        ? (marketParsed as any).events[0]
+        : null;
+      if (marketEvent) {
+        event = marketEvent;
+      }
       try {
-        const { data } = await axios.get<any[]>(`${GAMMA_BASE}/events`, {
-          params: { condition_ids: normalizedTarget, limit: 20 },
-        });
-        if (Array.isArray(data) && data.length > 0) {
-          event = data[0];
+        if (!event) {
+          const { data } = await axios.get<any[]>(`${GAMMA_BASE}/events`, {
+            params: { condition_ids: normalizedTarget, limit: 20 },
+          });
+          if (Array.isArray(data) && data.length > 0) {
+            const matched = data.find((e: any) =>
+              Array.isArray(e?.markets) &&
+              e.markets.some(
+                (m: any) =>
+                  String(m?.conditionId ?? "").toLowerCase() === normalizedTarget,
+              ),
+            );
+            event = matched ?? data[0];
+          }
         }
       } catch {
         // Non-fatal: market payload already gives enough to continue.
