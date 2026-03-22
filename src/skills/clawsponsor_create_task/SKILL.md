@@ -47,6 +47,14 @@ description: Use when the user has decided to create a bounty task. Resolves con
 
 Resolve the Polymarket targetId, collect task parameters (interactively, fast-path, or batch), pre-flight balance check, confirm, submit `create_task`.
 
+## Amount Input Rule (create_task)
+
+- `bountyAmount` and `requiredStake` must be entered in **human token units**.
+- Example:
+  - USDT/USDC: `bountyAmount: "1"` means 1 token (tool converts to raw with token decimals).
+  - WETH: `bountyAmount: "0.05"` means 0.05 WETH.
+- Do **not** pre-convert to smallest-unit raw values in the skill flow.
+
 ---
 
 ## Batch Mode Detection

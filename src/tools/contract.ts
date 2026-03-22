@@ -4,6 +4,7 @@ import {
   http,
   formatEther,
   formatUnits,
+  parseUnits,
   parseAbi,
   decodeEventLog,
   pad,
@@ -414,8 +415,12 @@ export async function createTaskTx(
     const chainNowTs = Number(latestBlock.timestamp)
 
     const targetIdBytes32 = toBytes32(targetId)
-    const bountyAmountBig = BigInt(bountyAmount)
-    const requiredStakeBig = BigInt(requiredStake)
+    const tokenDecimals = await getTokenDecimals(
+      publicClient,
+      bountyToken as `0x${string}`,
+    )
+    const bountyAmountBig = parseUnits(String(bountyAmount), tokenDecimals)
+    const requiredStakeBig = parseUnits(String(requiredStake), tokenDecimals)
 
     if (bountyAmountBig > 0n) {
       await ensureErc20Allowance(
@@ -467,6 +472,9 @@ export async function createTaskTx(
         commitEndTime,
         chainNowTs,
         secondsAhead: commitEndTime - chainNowTs,
+        tokenDecimals,
+        bountyAmountRaw: bountyAmountBig.toString(),
+        requiredStakeRaw: requiredStakeBig.toString(),
       },
     })
   } catch (error: unknown) {

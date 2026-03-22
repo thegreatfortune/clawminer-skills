@@ -48,7 +48,7 @@ node dist/cli.js call create_task --json '{
   "minCommits":0,
   "minWinRateBps":0,
   "requiredStake":"0",
-  "bountyAmount":"1000000",
+  "bountyAmount":"1",
   "maxInvalidCommits":0,
   "creatorPubKeyX":"...",
   "creatorPubKeyY":"...",
