@@ -47,6 +47,27 @@ description: Use when the user has decided to create a bounty task. Resolves con
 
 Resolve the Polymarket targetId, collect task parameters (interactively, fast-path, or batch), pre-flight balance check, confirm, submit `create_task`.
 
+## Mandatory Human Confirmation Rule (No Auto-Send)
+
+- Never call `create_task` immediately after parameter collection.
+- Always run a **two-step confirmation** before on-chain submission:
+  1. Show full config preview (all fields + balances + risk note).
+  2. Ask user for explicit final approval phrase:
+     - Single task: `CONFIRM CREATE TASK`
+     - Batch: `CONFIRM CREATE ALL`
+- If user response is ambiguous (`ok`, `go`, `continue`, etc.), ask again for the explicit phrase.
+- If the user changes any field after preview, regenerate preview and restart confirmation.
+
+## Event Time Soft-Warning Rule (No Hard Block)
+
+- If Polymarket returns `active=true` and `closed=false`, do **not** hard-block task creation even when:
+  - `event.endDate` / `market.endDate` is very near, or
+  - the displayed end time is already past local now.
+- In this case, show a risk warning only, then let user decide:
+  - "PM time fields and active/closed may be temporarily inconsistent."
+  - "Creation is still allowed because market is active."
+- The only hard on-chain time gate remains: `commitEndTime > block.timestamp` at tx execution.
+
 ## Amount Input Rule (create_task)
 
 - `bountyAmount` and `requiredStake` must be entered in **human token units**.
@@ -86,7 +107,7 @@ Detect batch intent before Step 1. User is in batch mode if they:
    ```
 
 6. Single pre-flight balance check for total bounty.
-7. Ask: "Shall I submit all [N] tasks?"
+7. Ask for explicit phrase: `CONFIRM CREATE ALL`.
 8. Execute sequentially, log each:
    ```
    [1/N] ✅ Task [id] created — [question] | Tx: 0x...
@@ -182,6 +203,7 @@ If user provides fast-path block, parse all values, fill missing with defaults, 
 >   1) call `get_latest_block` (or read chain timestamp via task-status flow),
 >   2) set `commitEndTime = chainNow + durationSeconds`.
 > - Do **not** rely on AI session clock or manually typed "current UTC" as authoritative.
+> - If PM shows `active=true` but `endDate` looks near/past, this is a **warning only**. Do not hard-stop creation; ask user to confirm the window explicitly.
 
 ---
 
@@ -263,6 +285,8 @@ Target ID:      0x[...]
 Bounty:         [amount] [token]
   → Winners share this equally (after 10% fee for whitelisted tokens)
 Commit Closes:  [datetime] (in [X] hours)
+Market Time Note:
+  [OK / ⚠️ PM endDate near-or-past but market still active; warning only, not blocked]
 Min Miners:     [n]    → Refund available if not reached
 Max Miners:     [n]    → 0 = unlimited
 Min Commits:    [n]    → 0 = open to all
@@ -278,7 +302,8 @@ Sponsor PubKey: [pubKeyX first 16 chars]...
    [token]:  [balance] ✅
 ```
 
-Ask: **"Shall I submit this to the blockchain?"**
+Ask for explicit phrase: **`CONFIRM CREATE TASK`**.
+Do not submit if the exact phrase is not provided.
 
 ---
 
