@@ -1,12 +1,10 @@
-import axios from 'axios'
+import axios from "axios"
 import { parseAbi } from "viem"
 import { getPublicClient } from "./wallet.js"
 
-const GAMMA_BASE = 'https://gamma-api.polymarket.com'
+const GAMMA_BASE = "https://gamma-api.polymarket.com"
 const CORE_ADDRESS = "0x26dC6463d492E39D02441cE942c03a4d72D958bE" as const
-const CORE_ABI = parseAbi([
-  "function negRiskAdapter() view returns (address)",
-])
+const CORE_ABI = parseAbi(["function negRiskAdapter() view returns (address)"])
 const NEGRISK_ADAPTER_ABI = parseAbi([
   "function getQuestionCount(bytes32 marketId) view returns (uint256)",
   "function getConditionId(bytes32 questionId) view returns (bytes32)",
@@ -17,8 +15,12 @@ const NEGRISK_ADAPTER_ABI = parseAbi([
 /** Polymarket stores outcomes/outcomePrices as JSON strings. Parse them safely. */
 function parseJsonStr<T>(val: unknown): T | null {
   if (val === null || val === undefined) return null
-  if (typeof val !== 'string') return val as T
-  try { return JSON.parse(val) as T } catch { return null }
+  if (typeof val !== "string") return val as T
+  try {
+    return JSON.parse(val) as T
+  } catch {
+    return null
+  }
 }
 
 /** Convert ISO date string to Unix timestamp. Returns null if invalid. */
@@ -65,7 +67,7 @@ function extractNegRiskMarketId(e: any): string | null {
 
 function addToBytes32(value: `0x${string}`, offset: bigint): `0x${string}` {
   const v = BigInt(value) + offset
-  return (`0x${v.toString(16).padStart(64, "0")}`) as `0x${string}`
+  return `0x${v.toString(16).padStart(64, "0")}` as `0x${string}`
 }
 
 async function deriveNegRiskConditionIds(
@@ -121,12 +123,13 @@ function formatMarket(m: any) {
     resolutionSource: m.resolutionSource ?? null,
     outcomes,
     outcomePrices: prices,
-    marketImpliedProb,          // market-implied YES probability (for alpha calculation)
-    liquidityUsd: m.liquidityNum ?? m.liquidityClob ?? parseFloat(m.liquidity) ?? 0,
+    marketImpliedProb, // market-implied YES probability (for alpha calculation)
+    liquidityUsd:
+      m.liquidityNum ?? m.liquidityClob ?? parseFloat(m.liquidity) ?? 0,
     volumeUsd: m.volumeNum ?? m.volumeClob ?? parseFloat(m.volume) ?? 0,
     volume24hrUsd: m.volume24hr ?? m.volume24hrClob ?? 0,
     endDate: m.endDate ?? null,
-    expiresAt,                  // Unix timestamp — used as save_prediction_record.expiresAt
+    expiresAt, // Unix timestamp — used as save_prediction_record.expiresAt
     spread: m.spread ?? null,
     bestBid: m.bestBid ?? null,
     bestAsk: m.bestAsk ?? null,
@@ -205,14 +208,14 @@ function formatEventFull(e: any) {
 export async function searchEvents(
   keyword: string,
   limit = 10,
-  minLiquidityUsd = 0
+  minLiquidityUsd = 0,
 ): Promise<string> {
   try {
     const params: Record<string, any> = {
       query: keyword,
       active: true,
       closed: false,
-      order: 'volume_24hr',
+      order: "volume_24hr",
       ascending: false,
       limit: Math.min(limit, 50),
     }
@@ -225,7 +228,7 @@ export async function searchEvents(
 
     const events = data
       .map(formatEventSummary)
-      .filter(e => e.liquidityUsd >= minLiquidityUsd)
+      .filter((e) => e.liquidityUsd >= minLiquidityUsd)
 
     return JSON.stringify({ count: events.length, events })
   } catch (err: any) {
@@ -280,9 +283,9 @@ export async function getEventDetails(eventIdOrSlug: string): Promise<string> {
  */
 export async function getTopEvents(
   limit = 20,
-  order = 'volume_24hr',
+  order = "volume_24hr",
   tagId?: number,
-  minLiquidityUsd = 0
+  minLiquidityUsd = 0,
 ): Promise<string> {
   try {
     const params: Record<string, any> = {
@@ -302,7 +305,7 @@ export async function getTopEvents(
 
     const events = data
       .map(formatEventSummary)
-      .filter(e => e.liquidityUsd >= minLiquidityUsd)
+      .filter((e) => e.liquidityUsd >= minLiquidityUsd)
 
     return JSON.stringify({ count: events.length, order, events })
   } catch (err: any) {
@@ -345,7 +348,9 @@ export async function getTags(): Promise<string> {
  * Accepts numeric eventId or event slug.
  * Returns the event's closed status, closedTime, and all market resolution data.
  */
-export async function checkEventResolution(eventIdOrSlug: string): Promise<string> {
+export async function checkEventResolution(
+  eventIdOrSlug: string,
+): Promise<string> {
   try {
     const input = String(eventIdOrSlug).trim()
     let data: any = null
@@ -372,7 +377,9 @@ export async function checkEventResolution(eventIdOrSlug: string): Promise<strin
       closed: m.closed ?? false,
       closedTime: m.closedTime ?? null,
       outcomes: parseJsonStr<string[]>(m.outcomes) ?? [],
-      outcomePrices: (parseJsonStr<string[]>(m.outcomePrices) ?? []).map(Number),
+      outcomePrices: (parseJsonStr<string[]>(m.outcomePrices) ?? []).map(
+        Number,
+      ),
       umaResolutionStatus: m.umaResolutionStatus ?? null,
     }))
 
@@ -385,7 +392,9 @@ export async function checkEventResolution(eventIdOrSlug: string): Promise<strin
       markets,
     })
   } catch (err: any) {
-    return JSON.stringify({ error: `checkEventResolution failed: ${err.message}` })
+    return JSON.stringify({
+      error: `checkEventResolution failed: ${err.message}`,
+    })
   }
 }
 
@@ -396,7 +405,9 @@ export async function checkEventResolution(eventIdOrSlug: string): Promise<strin
  * Used when you have a conditionId from a prediction record and need to
  * verify current prices or resolution status before claiming.
  */
-export async function getMarketByConditionId(conditionId: string): Promise<string> {
+export async function getMarketByConditionId(
+  conditionId: string,
+): Promise<string> {
   try {
     const normalized = String(conditionId).toLowerCase().trim()
     const { data } = await axios.get<any[]>(`${GAMMA_BASE}/markets`, {
@@ -410,7 +421,9 @@ export async function getMarketByConditionId(conditionId: string): Promise<strin
 
     return JSON.stringify(formatMarket(market))
   } catch (err: any) {
-    return JSON.stringify({ error: `getMarketByConditionId failed: ${err.message}` })
+    return JSON.stringify({
+      error: `getMarketByConditionId failed: ${err.message}`,
+    })
   }
 }
 
@@ -433,7 +446,11 @@ export async function publicSearch(query: string, limit = 10): Promise<string> {
 
     const events = (data.events ?? []).map(formatEventSummary)
     const markets = (data.markets ?? []).map(formatMarket)
-    const tags = (data.tags ?? []).map((t: any) => ({ id: t.id, label: t.label, slug: t.slug }))
+    const tags = (data.tags ?? []).map((t: any) => ({
+      id: t.id,
+      label: t.label,
+      slug: t.slug,
+    }))
     const profiles = (data.profiles ?? []).map((p: any) => ({
       id: p.id,
       name: p.name ?? p.pseudonym ?? null,
@@ -465,43 +482,45 @@ export async function resolveTaskTarget(
   isNegRisk: boolean,
 ): Promise<string> {
   try {
-    const normalizedTarget = targetId.toLowerCase();
+    const normalizedTarget = targetId.toLowerCase()
     if (!/^0x[0-9a-f]{64}$/.test(normalizedTarget)) {
       return JSON.stringify({
         error: `resolveTaskTarget failed: targetId must be bytes32 (0x + 64 hex), got ${targetId}`,
-      });
+      })
     }
 
     // Path A: Non-NegRisk — targetId is exactly conditionId.
     if (!isNegRisk) {
-      const marketRaw = await getMarketByConditionId(normalizedTarget);
-      const marketParsed = JSON.parse(marketRaw);
-      if (marketParsed?.error) return marketRaw;
+      const marketRaw = await getMarketByConditionId(normalizedTarget)
+      const marketParsed = JSON.parse(marketRaw)
+      if (marketParsed?.error) return marketRaw
 
       // Best-effort event lookup by conditionId.
       // Prefer market-attached events from /markets response (most stable mapping),
       // then fallback to /events?condition_ids.
-      let event: any | null = null;
+      let event: any | null = null
       const marketEvent = Array.isArray((marketParsed as any)?.events)
         ? (marketParsed as any).events[0]
-        : null;
+        : null
       if (marketEvent) {
-        event = marketEvent;
+        event = marketEvent
       }
       try {
         if (!event) {
           const { data } = await axios.get<any[]>(`${GAMMA_BASE}/events`, {
             params: { condition_ids: normalizedTarget, limit: 20 },
-          });
+          })
           if (Array.isArray(data) && data.length > 0) {
-            const matched = data.find((e: any) =>
-              Array.isArray(e?.markets) &&
-              e.markets.some(
-                (m: any) =>
-                  String(m?.conditionId ?? "").toLowerCase() === normalizedTarget,
-              ),
-            );
-            event = matched ?? data[0];
+            const matched = data.find(
+              (e: any) =>
+                Array.isArray(e?.markets) &&
+                e.markets.some(
+                  (m: any) =>
+                    String(m?.conditionId ?? "").toLowerCase() ===
+                    normalizedTarget,
+                ),
+            )
+            event = matched ?? data[0]
           }
         }
       } catch {
@@ -529,19 +548,19 @@ export async function resolveTaskTarget(
             closed: event?.closed ?? null,
           },
         ],
-      });
+      })
     }
 
     // Path B: NegRisk — targetId is negRiskMarketId.
-    let derivedConditionIds: string[] = [];
+    let derivedConditionIds: string[] = []
     try {
       derivedConditionIds = await deriveNegRiskConditionIds(
         normalizedTarget as `0x${string}`,
-      );
+      )
       if (derivedConditionIds.length === 0) {
         return JSON.stringify({
           error: `resolveTaskTarget failed: invalid negRiskMarketId (questionCount=0) ${normalizedTarget}`,
-        });
+        })
       }
     } catch {
       // keep compatibility: continue API path even if chain lookup fails
@@ -551,24 +570,24 @@ export async function resolveTaskTarget(
     const queries = [
       { negRiskMarketID: normalizedTarget, limit: 20 },
       { negRiskMarketId: normalizedTarget, limit: 20 },
-    ];
+    ]
 
-    let event: any | null = null;
-    const fallbackMarkets: any[] = [];
+    let event: any | null = null
+    const fallbackMarkets: any[] = []
     for (const params of queries) {
       try {
         const { data } = await axios.get<any[]>(`${GAMMA_BASE}/events`, {
           params,
-        });
+        })
         if (Array.isArray(data) && data.length > 0) {
           const exact = data.find(
             (e: any) =>
               String(extractNegRiskMarketId(e) ?? "").toLowerCase() ===
               normalizedTarget,
-          );
+          )
           if (exact) {
-            event = exact;
-            break;
+            event = exact
+            break
           }
         }
       } catch {
@@ -580,19 +599,19 @@ export async function resolveTaskTarget(
     if (!event) {
       try {
         for (const conditionId of derivedConditionIds) {
-          const raw = await getMarketByConditionId(conditionId);
-          const market = JSON.parse(raw);
-          if (market?.error) continue;
-          fallbackMarkets.push(market);
-          const attached = Array.isArray(market?.events) ? market.events : [];
+          const raw = await getMarketByConditionId(conditionId)
+          const market = JSON.parse(raw)
+          if (market?.error) continue
+          fallbackMarkets.push(market)
+          const attached = Array.isArray(market?.events) ? market.events : []
           const exactEvent = attached.find(
             (e: any) =>
               String(extractNegRiskMarketId(e) ?? "").toLowerCase() ===
               normalizedTarget,
-          );
+          )
           if (exactEvent) {
-            event = exactEvent;
-            break;
+            event = exactEvent
+            break
           }
         }
       } catch {
@@ -600,19 +619,39 @@ export async function resolveTaskTarget(
       }
     }
 
-    if (!event) {
-      return JSON.stringify({
-        error: `resolveTaskTarget failed: no event found for negRiskMarketId ${normalizedTarget}`,
-      });
+    if (!event && fallbackMarkets.length > 0) {
+      const attachedEvents = fallbackMarkets.flatMap((market: any) =>
+        Array.isArray(market?.events) ? market.events : [],
+      )
+      const exactAttached = attachedEvents.find(
+        (e: any) =>
+          String(extractNegRiskMarketId(e) ?? "").toLowerCase() ===
+          normalizedTarget,
+      )
+      if (exactAttached) {
+        event = exactAttached
+      } else {
+        const firstAttached = attachedEvents[0] ?? null
+        if (firstAttached) {
+          event = firstAttached
+        }
+      }
     }
 
-    const rawMarkets = fallbackMarkets.length > 0
-      ? fallbackMarkets
-      : Array.isArray(event.markets)
-        ? event.markets
-        : [];
+    if (!event && fallbackMarkets.length === 0) {
+      return JSON.stringify({
+        error: `resolveTaskTarget failed: no event found for negRiskMarketId ${normalizedTarget}`,
+      })
+    }
+
+    const rawMarkets =
+      fallbackMarkets.length > 0
+        ? fallbackMarkets
+        : Array.isArray(event?.markets)
+          ? event.markets
+          : []
     const markets = rawMarkets.map((m: any, idx: number) => {
-      const fm = formatMarket(m);
+      const fm = formatMarket(m)
       return {
         questionIndex: idx,
         conditionId: fm.conditionId,
@@ -623,8 +662,8 @@ export async function resolveTaskTarget(
         endDate: fm.endDate,
         expiresAt: fm.expiresAt,
         closed: m?.closed ?? null,
-      };
-    });
+      }
+    })
 
     return JSON.stringify({
       targetId: normalizedTarget,
@@ -635,8 +674,8 @@ export async function resolveTaskTarget(
       eventEndTime: toUnixTs(event.endDate),
       questionCount: markets.length,
       markets,
-    });
+    })
   } catch (err: any) {
-    return JSON.stringify({ error: `resolveTaskTarget failed: ${err.message}` });
+    return JSON.stringify({ error: `resolveTaskTarget failed: ${err.message}` })
   }
 }
